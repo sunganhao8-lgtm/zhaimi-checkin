@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#FBF5EC">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>宅咪打卡 · 别让毛孩子白等一天</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- 顶部：宠物切换 -->
+  <header class="topbar">
+    <div class="brand">宅咪<span>打卡</span></div>
+    <div class="pet-chips" id="petChips"></div>
+    <button class="btn-icon" id="btnAddPet" title="添加宠物">＋</button>
+  </header>
+
+  <!-- 情绪横幅：内疚/安心 -->
+  <div class="banner" id="banner"></div>
+
+  <!-- 宠物卡 -->
+  <section class="pet-card" id="petCard"></section>
+
+  <!-- 今日打卡 -->
+  <section class="section">
+    <div class="section-title">今日打卡 <span class="date" id="todayDate"></span></div>
+    <div class="task-grid" id="dailyTasks"></div>
+  </section>
+
+  <!-- 周期任务 -->
+  <section class="section">
+    <div class="section-title">健康周期 <span class="sub">点一下 = 今天做了，自动算下次</span></div>
+    <div id="periodicTasks"></div>
+  </section>
+
+  <!-- 周报 -->
+  <section class="section">
+    <div class="section-title">本周成绩单</div>
+    <div class="weekly-preview" id="weeklyPreview"></div>
+    <button class="btn-primary" id="btnWeekly">生成周报卡 · 晒给朋友看</button>
+  </section>
+
+  <footer class="footer">
+    <button class="link" id="btnExport">导出数据</button> ·
+    <button class="link" id="btnImport">导入数据</button> ·
+    <button class="link" id="btnEditPet">编辑宠物</button>
+  </footer>
+</div>
+
+<!-- 通用弹层 -->
+<div class="mask" id="mask">
+  <div class="modal" id="modal"></div>
+</div>
+
+<!-- 周报分享浮层 -->
+<div class="share-mask" id="shareMask">
+  <div class="share-wrap">
+    <img id="shareImg" alt="宅咪周报卡">
+    <div class="share-tip">长按图片保存到相册</div>
+    <button class="btn-ghost" id="btnCloseShare">关闭</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
