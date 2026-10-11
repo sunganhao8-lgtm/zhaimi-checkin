@@ -29,6 +29,25 @@
 - 周报卡：1080×1440 Canvas，奶油底 + 橙红点缀 + 爪印水印 + 7 日格子，长按保存
 - 数据导出/导入 JSON（不锁用户数据）
 - 演示模式：URL 加 `?demo=1`（预置虚拟猫"糯米"+ 7 天历史）
+- **PWA 可安装**：手机浏览器"添加到主屏幕"后全屏独立运行，Service Worker 离线缓存
+- 周报卡浮层支持"保存图片"按钮（电脑端），手机长按保存
+
+## 验证记录（2026-10-11）
+
+- 浏览器实测 `?demo=1` + 周报卡生成：**通过**。照片头像正确绘制进卡片圆形头像（修复前是空白圆）、
+  7 日格子点亮数与演示数据逐日吻合、今日列橙色高亮、71% 评语档位正确、周报卡原图 1080×1440 目检无溢出。
+- 逻辑测试 34/34 通过（`node test-logic.js`）。
+
+## 更新日志
+
+### 2026-10-11（发布前修复轮）
+- **修复**：周报卡照片头像画不出来的 bug（`img.src` 赋值后未等 `onload` 就 `drawImage`）——这是阻塞发布的问题
+- **修复**：内疚横幅 XSS（宠物名含 HTML 时被注入，现统一转义）
+- **修复**：新建档宠物误报"已经 30 天没喂了"（改为按建档日计算 gap）
+- **修复**：canvas 文本误用 HTML 转义 + 长名字/评语超宽溢出（加 `fitText` 截断）
+- **修复**：同一天记两次体重产生同日双条污染趋势（改为当日覆盖）
+- **加固**：导入/读取数据走 `normalizeState` 清洗（坏 type/photo/日期/logs 不再打崩渲染）
+- **新增**：PWA（manifest + Service Worker + 图标），可安装、离线可用
 
 ## 运行
 
@@ -38,7 +57,22 @@ python -m http.server 8123
 # 手机同局域网访问 http://<本机IP>:8123/?demo=1
 ```
 
-测试：`node test-logic.js`（14 项断言：streak/周统计/周期/体重）
+测试：`node test-logic.js`（34 项断言：streak/周统计/周期/体重/横幅gap/数据兜底）
+
+## 发布操作清单（待授权，执行人：主人）
+
+1. **GitHub Pages 发布**（零成本首选）：
+   ```bash
+   cd D:/GitHub_Project/zhaimi-checkin
+   git init && git add -A && git commit -m "zhaimi-checkin MVP"
+   # GitHub 建仓后：
+   git remote add origin git@github.com:<user>/zhaimi-checkin.git && git push -u origin main
+   # 仓库 Settings → Pages → Deploy from branch → main / root
+   ```
+2. **上线后自检**：手机访问 `https://<user>.github.io/zhaimi-checkin/?demo=1` → 生成周报卡 → 长按保存；
+   再"添加到主屏幕"验证图标与全屏；飞行模式验证离线可开。
+3. **改代码必改 SW 版本**：`sw.js` 里 `VER = 'zhaimi-v1'` → `'zhaimi-v2'`，否则老用户拿旧缓存。
+4. 想换国内快线再上小米 NAS + cpolar（方案表见上）。
 
 ## 发布选项
 

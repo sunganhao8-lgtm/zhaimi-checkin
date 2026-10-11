@@ -41,10 +41,33 @@ const GOOD_LINES = [
 const KEY = 'zhaimi_checkin_v1';
 let state = load();
 
+/* 导入/读取兜底: 缺字段补默认、脏字段清洗, 防止坏数据把渲染打崩 */
+function normalizeState(s) {
+  if (!s || !Array.isArray(s.pets)) return null;
+  const out = { pets: [], activePetId: null, logs: (s.logs && typeof s.logs === 'object') ? s.logs : {} };
+  s.pets.forEach(p => {
+    if (!p || !p.id || !p.name) return;
+    out.pets.push({
+      id: String(p.id),
+      name: String(p.name).slice(0, 10),
+      type: TYPE_TASKS[p.type] ? p.type : 'other',
+      emoji: p.emoji || '🐾',
+      photo: typeof p.photo === 'string' ? p.photo : null,
+      createdAt: /^\d{4}-\d{2}-\d{2}$/.test(p.createdAt || '') ? p.createdAt : todayKey(),
+    });
+  });
+  out.activePetId = (s.activePetId && out.pets.some(p => p.id === s.activePetId))
+    ? s.activePetId : (out.pets[0] ? out.pets[0].id : null);
+  Object.keys(out.logs).forEach(pid => {
+    const l = out.logs[pid] || {};
+    out.logs[pid] = { daily: l.daily || {}, periodic: l.periodic || {}, weights: Array.isArray(l.weights) ? l.weights : [] };
+  });
+  return out;
+}
 function load() {
   try {
-    const s = JSON.parse(localStorage.getItem(KEY));
-    if (s && Array.isArray(s.pets)) return s;
+    const s = normalizeState(JSON.parse(localStorage.getItem(KEY)));
+    if (s) return s;
   } catch (e) { /* 损坏则重建 */ }
   return { pets: [], activePetId: null, logs: {} };
 }
@@ -125,7 +148,10 @@ function markPeriodic(petId, item, key) {
 /* 体重 */
 function addWeight(petId, kg) {
   const log = petLog(petId);
-  log.weights.push({ d: todayKey(), kg: Number(kg) });
+  const tk = todayKey();
+  const same = log.weights.find(x => x.d === tk);
+  if (same) same.kg = Number(kg); /* 同一天再记 → 覆盖, 趋势不被同日两条污染 */
+  else log.weights.push({ d: tk, kg: Number(kg) });
   log.weights.sort((a, b) => (a.d < b.d ? -1 : 1));
   save();
 }
@@ -135,6 +161,17 @@ function weightTrend(petId) {
   const latest = w[w.length - 1].kg;
   const prev = w.length > 1 ? w[w.length - 2].kg : null;
   return { latest, prev, delta: prev != null ? Number((latest - prev).toFixed(1)) : null };
+}
+
+/* 距上次喂食几天: 往回扫最多30天; 从没喂过按建档日算, 别对刚建档的用户说"30天没喂" */
+function feedGapDays(petId) {
+  const pet = state.pets.find(p => p.id === petId);
+  let gap = 0, k = todayKey();
+  while (!isDailyDone(petId, k, 'feed') && gap < 30) { gap++; k = addDays(k, -1); }
+  if (gap >= 30 && pet && pet.createdAt) {
+    gap = Math.min(30, Math.max(1, daysBetween(pet.createdAt, todayKey())));
+  }
+  return gap;
 }
 
 /* ---------- 渲染 ---------- */
@@ -174,15 +211,14 @@ function render() {
   const tk = todayKey();
   const fed = isDailyDone(pet.id, tk, 'feed');
   const streak = calcStreak(pet.id);
+  const nm = esc(pet.name); /* 横幅走 innerHTML, 名字必须转义 */
   if (fed) {
-    const line = GOOD_LINES[Math.floor(Math.random() * GOOD_LINES.length)].replace('{name}', pet.name);
+    const line = GOOD_LINES[Math.floor(Math.random() * GOOD_LINES.length)].replace('{name}', nm);
     banner.className = 'banner good';
     banner.innerHTML = `<b>连续 ${streak} 天</b> · ${line}`;
   } else {
-    // 找最近一次喂食是几天前
-    let gap = 0, k = tk;
-    while (!isDailyDone(pet.id, k, 'feed') && gap < 30) { gap++; k = addDays(k, -1); }
-    const line = GUILT_LINES[Math.floor(Math.random() * GUILT_LINES.length)].replace('{name}', pet.name);
+    const gap = feedGapDays(pet.id);
+    const line = GUILT_LINES[Math.floor(Math.random() * GUILT_LINES.length)].replace('{name}', nm);
     banner.className = 'banner';
     banner.innerHTML = gap >= 2
       ? `已经 <b>${gap} 天</b>没喂了… ${line}`
@@ -307,6 +343,7 @@ function openPetModal(existing) {
       const cx = cv.getContext('2d');
       cx.drawImage(img, (img.width * s - 128) / -2, (img.height * s - 128) / -2, img.width * s, img.height * s);
       photo = cv.toDataURL('image/jpeg', 0.8);
+      URL.revokeObjectURL(img.src);
       document.getElementById('f_photoBtn').innerHTML = `<img src="${photo}">`;
     };
     img.src = URL.createObjectURL(f);
@@ -354,12 +391,23 @@ function openWeightModal(petId) {
 }
 
 /* ---------- 周报卡 (Canvas) ---------- */
-function drawWeeklyCard() {
+function loadImg(src) {
+  return new Promise(res => { const i = new Image(); i.onload = () => res(i); i.onerror = () => res(null); i.src = src; });
+}
+/* canvas 文本超宽加省略号 */
+function fitText(g, text, maxWidth) {
+  if (g.measureText(text).width <= maxWidth) return text;
+  while (text.length > 1 && g.measureText(text + '…').width > maxWidth) text = text.slice(0, -1);
+  return text + '…';
+}
+async function drawWeeklyCard() {
   const pet = activePet();
   if (!pet) return null;
   const stats = calcWeekStats(pet.id, pet);
   const streak = calcStreak(pet.id);
   const w = weightTrend(pet.id);
+  /* 照片必须等 onload 再画, 否则周报卡头像是一块空白圆 */
+  const photoImg = pet.photo ? await loadImg(pet.photo) : null;
   const W = 1080, H = 1440;
   const cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
@@ -393,10 +441,9 @@ function drawWeeklyCard() {
   g.beginPath(); g.arc(W / 2, cy, r + 8, 0, Math.PI * 2);
   g.fillStyle = '#F3D9C8'; g.fill();
   g.beginPath(); g.arc(W / 2, cy, r, 0, Math.PI * 2); g.clip();
-  if (pet.photo) {
-    const img = new Image();
-    img.src = pet.photo;
-    try { g.drawImage(img, W / 2 - r, cy - r, r * 2, r * 2); } catch (e) { /* noop */ }
+  if (photoImg) {
+    const s = Math.max((r * 2) / photoImg.width, (r * 2) / photoImg.height);
+    g.drawImage(photoImg, W / 2 - photoImg.width * s / 2, cy - photoImg.height * s / 2, photoImg.width * s, photoImg.height * s);
   } else {
     g.font = '150px sans-serif'; g.textBaseline = 'middle';
     g.fillText(pet.emoji, W / 2, cy + 10);
@@ -405,7 +452,7 @@ function drawWeeklyCard() {
   g.restore();
 
   g.fillStyle = '#3D2E23'; g.font = '800 56px sans-serif';
-  g.fillText(esc(pet.name), W / 2, cy + r + 80);
+  g.fillText(fitText(g, pet.name, W - 160), W / 2, cy + r + 80); /* canvas 不吃 HTML 转义, 只防超宽 */
   g.fillStyle = '#8A7A6B'; g.font = '400 32px sans-serif';
   g.fillText(`我是${TYPE_NAME[pet.type]} · 本周被照顾得怎么样？`, W / 2, cy + r + 130);
 
@@ -465,7 +512,7 @@ function drawWeeklyCard() {
   else if (stats.pct >= 40) verdict = `${pet.name}说：还可以更爱我一点`;
   else verdict = `${pet.name}有点委屈，下周好好补上 🥺`;
   g.fillStyle = '#E8582A'; g.font = '700 44px sans-serif';
-  g.fillText(verdict, W / 2, py);
+  g.fillText(fitText(g, verdict, W - 120), W / 2, py);
 
   /* 底部品牌 */
   g.fillStyle = '#8A7A6B'; g.font = '600 30px sans-serif';
@@ -483,11 +530,18 @@ function roundRect(g, x, y, w, h, r) {
   g.closePath();
 }
 
-function showWeekly() {
-  const url = drawWeeklyCard();
+async function showWeekly() {
+  const url = await drawWeeklyCard();
   if (!url) return;
   document.getElementById('shareImg').src = url;
   document.getElementById('shareMask').classList.add('show');
+}
+function saveWeeklyImg() {
+  const a = document.createElement('a');
+  a.href = document.getElementById('shareImg').src;
+  const pet = activePet();
+  a.download = `宅咪周报_${pet ? pet.name : ''}_${todayKey()}.jpg`;
+  a.click();
 }
 
 /* ---------- 导入导出 ---------- */
@@ -515,8 +569,8 @@ function openImport() {
     <div class="modal-actions"><button class="btn-primary" id="im_go">导入</button><button class="btn-ghost" onclick="closeModal()">取消</button></div>`);
   document.getElementById('im_go').onclick = () => {
     try {
-      const s = JSON.parse(document.getElementById('im_ta').value);
-      if (!s || !Array.isArray(s.pets)) throw new Error('bad');
+      const s = normalizeState(JSON.parse(document.getElementById('im_ta').value));
+      if (!s) throw new Error('bad');
       state = s; save(); closeModal(); render();
     } catch (e) { alert('格式不对，导入失败'); }
   };
@@ -564,12 +618,18 @@ if (typeof document !== 'undefined') {
   document.getElementById('btnExport').onclick = openExport;
   document.getElementById('btnImport').onclick = openImport;
   document.getElementById('mask').addEventListener('click', e => { if (e.target.id === 'mask') closeModal(); });
+  document.getElementById('btnSaveShare').onclick = saveWeeklyImg;
   render();
+  /* PWA: 仅安全上下文可注册 (https / localhost), 局域网 http 打开时静默跳过 */
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
 }
 /* Node 环境导出纯逻辑供测试 */
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     addDays, daysBetween, toggleDaily, isDailyDone, calcStreak,
-    calcWeekStats, periodicStatus, markPeriodic, addWeight, weightTrend, state,
+    calcWeekStats, periodicStatus, markPeriodic, addWeight, weightTrend,
+    feedGapDays, normalizeState, state,
   };
 }

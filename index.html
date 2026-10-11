@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>宅咪打卡 · 别让毛孩子白等一天</title>
 <link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon-180.png">
 </head>
 <body>
 <div id="app">
@@ -60,8 +63,11 @@
 <div class="share-mask" id="shareMask">
   <div class="share-wrap">
     <img id="shareImg" alt="宅咪周报卡">
-    <div class="share-tip">长按图片保存到相册</div>
-    <button class="btn-ghost" id="btnCloseShare">关闭</button>
+    <div class="share-tip">手机长按保存到相册 · 电脑点「保存图片」</div>
+    <div class="share-actions">
+      <button class="btn-ghost" id="btnSaveShare">保存图片</button>
+      <button class="btn-ghost" id="btnCloseShare">关闭</button>
+    </div>
   </div>
 </div>
 
