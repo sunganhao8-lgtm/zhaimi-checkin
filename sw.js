@@ -1,7 +1,7 @@
 /* 宅咪打卡 Service Worker — 预缓存应用外壳，离线可用
  * 改了 app.js/style.css/index.html 后必须把 VER 号 +1，否则老用户拿的是旧缓存
  */
-const VER = 'zhaimi-v1';
+const VER = 'zhaimi-v2';
 const SHELL = [
   './', './index.html', './style.css', './app.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png',

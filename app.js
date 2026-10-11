@@ -128,6 +128,33 @@ function calcWeekStats(petId, pet) {
   return { pct: total ? Math.round((done / total) * 100) : 0, days, done, total };
 }
 
+/* 月历热力图: 某月每日完成度。m 为 1-12; 未来日期 future=true (不计入完成率) */
+function monthGrid(petId, pet, y, m) {
+  const log = petLog(petId);
+  const tasks = dailyTasksOf(pet);
+  const lead = (new Date(y, m - 1, 1).getDay() + 6) % 7; /* 周一开头 */
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const tk = todayKey();
+  const cells = [];
+  for (let i = 0; i < lead; i++) cells.push({ blank: true });
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = fmtKey(new Date(y, m - 1, d));
+    const rec = log.daily[key] || {};
+    let done = 0;
+    tasks.forEach(t => { if (rec[t]) done++; });
+    cells.push({ key, day: d, done, total: tasks.length, feed: !!rec.feed, future: key > tk });
+  }
+  return { y, m, cells };
+}
+/* 月完成率: 只算已过去的(含今天)日子 */
+function monthPct(g) {
+  let done = 0, total = 0;
+  g.cells.forEach(c => {
+    if (!c.blank && !c.future) { done += c.done; total += c.total; }
+  });
+  return total ? Math.round((done / total) * 100) : 0;
+}
+
 /* 周期任务状态 */
 function periodicStatus(petId, item) {
   const log = petLog(petId);
@@ -174,6 +201,47 @@ function feedGapDays(petId) {
   return gap;
 }
 
+/* 月历视图状态: null = 当前月 */
+let calView = null;
+function firstMonthOf(petId) {
+  const pet = state.pets.find(p => p.id === petId);
+  let min = pet && pet.createdAt ? pet.createdAt.slice(0, 7) : null;
+  Object.keys(petLog(petId).daily).forEach(k => {
+    const ym = k.slice(0, 7);
+    if (!min || ym < min) min = ym;
+  });
+  return min || todayKey().slice(0, 7);
+}
+function renderCalendar(pet) {
+  const el = document.getElementById('monthCal');
+  if (!el) return;
+  const tk = todayKey();
+  if (!calView) { const n = tk.split('-'); calView = { y: +n[0], m: +n[1] }; }
+  const grid = monthGrid(pet.id, pet, calView.y, calView.m);
+  const viewYm = `${calView.y}-${String(calView.m).padStart(2, '0')}`;
+  const weekCN = ['一', '二', '三', '四', '五', '六', '日'];
+  let html = `<div class="cal-head">
+    <button class="cal-nav" id="calPrev" ${viewYm <= firstMonthOf(pet.id) ? 'disabled' : ''}>‹</button>
+    <b>${calView.y}年${calView.m}月 · 完成率 ${monthPct(grid)}%</b>
+    <button class="cal-nav" id="calNext" ${viewYm >= tk.slice(0, 7) ? 'disabled' : ''}>›</button>
+  </div><div class="cal-week">${weekCN.map(w => `<span>${w}</span>`).join('')}</div><div class="cal-grid">`;
+  grid.cells.forEach(c => {
+    if (c.blank) { html += '<span class="cal-cell blank"></span>'; return; }
+    const lv = c.future ? 'f' : (c.done === 0 ? 0 : Math.ceil(c.done / c.total * 4));
+    html += `<span class="cal-cell h${lv}${c.key === tk ? ' today' : ''}">${c.day}</span>`;
+  });
+  html += '</div>';
+  el.innerHTML = html;
+  document.getElementById('calPrev').onclick = () => {
+    calView = calView.m === 1 ? { y: calView.y - 1, m: 12 } : { y: calView.y, m: calView.m - 1 };
+    renderCalendar(pet);
+  };
+  document.getElementById('calNext').onclick = () => {
+    calView = calView.m === 12 ? { y: calView.y + 1, m: 1 } : { y: calView.y, m: calView.m + 1 };
+    renderCalendar(pet);
+  };
+}
+
 /* ---------- 渲染 ---------- */
 function render() {
   const pet = activePet();
@@ -203,6 +271,8 @@ function render() {
       <button class="btn-primary" onclick="openPetModal()">添加我的毛孩子</button>
     </div>`;
     grid.innerHTML = ''; plist.innerHTML = ''; wp.innerHTML = '';
+    const mc0 = document.getElementById('monthCal');
+    if (mc0) mc0.innerHTML = '';
     return;
   }
 
@@ -282,6 +352,9 @@ function render() {
     <div class="wp-stat"><div class="wp-num">🔥${streak}</div><div class="wp-label">连续天数</div></div>
     <div class="wp-div"></div>
     <div class="wp-stat"><div class="wp-num">${w && w.latest != null ? w.latest + 'kg' : '—'}</div><div class="wp-label">最新体重</div></div>`;
+
+  /* 打卡月历 */
+  renderCalendar(pet);
 }
 
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
@@ -630,6 +703,6 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     addDays, daysBetween, toggleDaily, isDailyDone, calcStreak,
     calcWeekStats, periodicStatus, markPeriodic, addWeight, weightTrend,
-    feedGapDays, normalizeState, state,
+    feedGapDays, normalizeState, monthGrid, monthPct, firstMonthOf, state,
   };
 }

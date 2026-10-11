@@ -89,8 +89,27 @@ m.state.pets.push({ id: pOld, name: '老崽', type: 'cat', emoji: '🐱', create
 T('老宠物30天没喂→gap封顶30', m.feedGapDays(pOld) === 30);
 T('今天喂了→gap=0', m.feedGapDays(PET) === 0);
 
+/* 打卡月历 */
+console.log('[7] 月历热力图');
+const petObj = m.state.pets.find(p => p.id === PET);
+m.state.logs[PET].daily['2026-09-15'] = { feed: 1, water: 1, poop: 1, walk: 1, play: 1 };
+m.state.logs[PET].daily['2026-09-16'] = { feed: 1 };
+const g9 = m.monthGrid(PET, petObj, 2026, 9); // 2026-09-01 是周二 → 周一开头补1格
+T('9月格子数=1空+30天', g9.cells.length === 31 && g9.cells[0].blank && g9.cells[1].day === 1);
+T('9月全为已过日期', g9.cells.every(c => c.blank || !c.future));
+T('9月完成率=4% (6/150)', m.monthPct(g9) === 4);
+const d15 = g9.cells.find(c => c.key === '2026-09-15');
+T('9月15日满格5/5', d15 && d15.done === 5 && d15.feed === true);
+const g10 = m.monthGrid(PET, petObj, 2026, 10); // 2026-10-01 周四 → 补3格, 31天
+T('10月格子数=3空+31天', g10.cells.length === 34 && g10.cells[0].blank);
+T('明天起算未来日期', g10.cells.find(c => c.key === m.addDays(tk, 1)).future === true);
+T('今天不算未来', g10.cells.find(c => c.key === tk).future === false);
+T('10月完成率只算已过日子', m.monthPct(g10) === Math.round((6 / (11 * 5)) * 100));
+T('firstMonthOf 取建档月', m.firstMonthOf(PET) === '2026-01');
+T('空数据宠物完成率=0', m.monthPct(m.monthGrid(pOld, m.state.pets.find(p => p.id === pOld), 2026, 9)) === 0);
+
 /* 导入/读取数据兜底 */
-console.log('[7] normalizeState 数据兜底');
+console.log('[8] normalizeState 数据兜底');
 T('null→拒绝', m.normalizeState(null) === null);
 T('缺pets数组→拒绝', m.normalizeState({ pets: 'x' }) === null);
 T('pets非数组→拒绝', m.normalizeState({ pets: 42 }) === null);
